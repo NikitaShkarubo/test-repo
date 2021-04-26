@@ -1,0 +1,80 @@
+parameters:
+  currency_exchanger.rates_remote_source: 'https://api.exchangeratesapi.io/latest'
+  math.calculation_precision: 6
+  deposit.commission_coefficient: '0.03'
+  withdraw_for_business.commission_coefficient: '0.5'
+  withdraw_for_private.commission_coefficient: '0.3'
+  withdraw_for_private.number_of_free_operations_limit: 3
+  withdraw_for_private.amount_of_free_operations_limit: '1000'
+  withdraw_for_private.time_period_of_free_operations_limit: 'week' # week, month, quarter, year
+  withdraw_for_private.base_currency_code: 'EUR'
+
+services:
+  currency_factory:
+    class: App\Service\Currency\CurrencyFactory
+
+  reader_provider:
+    class: App\Service\Reader\ReaderProvider
+
+  math:
+    class: App\Service\Math
+    arguments: ['%math.calculation_precision%']
+
+  user_free_operation_limits_storage:
+    class: App\Service\CommissionCalculator\UserFreeOperationLimitsStorage
+
+  currency_exchanger:
+    class: App\Service\Currency\CurrencyExchanger
+    arguments:
+      - '@math'
+      - '%currency_exchanger.rates_remote_source%'
+
+  currency_normalizer:
+    class: App\Service\Currency\CurrencyNormalizer
+    arguments:
+      - '@math'
+
+  deposit_strategy:
+    class: App\Service\CommissionCalculator\Strategy\Deposit
+    arguments:
+      - '@math'
+      - '%deposit.commission_coefficient%'
+
+  withdraw_for_business_client_strategy:
+    class: App\Service\CommissionCalculator\Strategy\WithdrawForBusinessClient
+    arguments:
+      - '@math'
+      - '%withdraw_for_business.commission_coefficient%'
+
+  withdraw_for_private_client_strategy:
+    class: App\Service\CommissionCalculator\Strategy\WithdrawForPrivateClient
+    arguments:
+      - '@math'
+      - '@currency_exchanger'
+      - '@user_free_operation_limits_storage'
+      - '@currency_factory'
+      - '%withdraw_for_private.commission_coefficient%'
+      - '%withdraw_for_private.number_of_free_operations_limit%'
+      - '%withdraw_for_private.amount_of_free_operations_limit%'
+      - '%withdraw_for_private.time_period_of_free_operations_limit%'
+      - '%withdraw_for_private.base_currency_code%'
+
+  calculation_strategy_provider:
+    class: App\Service\CommissionCalculator\Strategy\CalculationStrategyProvider
+    arguments:
+      - '@withdraw_for_business_client_strategy'
+      - '@withdraw_for_private_client_strategy'
+      - '@deposit_strategy'
+
+  commission_calculator:
+    class: App\Service\CommissionCalculator\CommissionCalculator
+    arguments:
+      - '@calculation_strategy_provider'
+      - '@currency_normalizer'
+
+  calculate_commission_fee_command:
+    class: App\Command\CalculateCommissionFeeCommand
+    arguments:
+      - '@reader_provider'
+      - '@commission_calculator'
+      - '@currency_factory'
